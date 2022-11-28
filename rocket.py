@@ -42,8 +42,8 @@ class Rocket(RigidBody):
     def step(self, dt):
         super().step(dt)
 
-        x = self.position[0] - self.rocket_sprite.image_.get_width() // 2
-        y = self.position[1] - self.rocket_sprite.image_.get_height()
+        x = self.position[0]
+        y = self.position[1]
 
         self.rocket_sprite.transform(x, y, self.rotation)
 
@@ -130,7 +130,8 @@ class Rocket(RigidBody):
         def __init__(self, fname, x, y):
             super().__init__()
             self.image_ = pygame.image.load(fname).convert_alpha()
-            self.rect_ = pygame.Rect(x, y, self.image_.get_width(), self.image_.get_height())
+            self.rect_ = pygame.Rect(0, 0, self.image_.get_width(), self.image_.get_height())
+            self.rect_.midbottom = (x, y)
             self.rect = self.rect_
             self.image = self.image_
 
@@ -142,7 +143,8 @@ class Rocket(RigidBody):
                 y (int): the y position of the transformed sprite, in screen coordinates.
                 angle (float): the orientation of the transformed sprite, in radians.
             """
-            self.rect_ = pygame.Rect(x, y, self.image.get_width(), self.image_.get_height())
+            self.rect_ = pygame.Rect(0, 0, self.image_.get_width(), self.image_.get_height())
+            self.rect_.midbottom = (x, y)
             self.image = pygame.transform.rotate(self.image_, -np.degrees(angle))
             self.rect = self.image.get_rect(center=self.rect_.center)
 

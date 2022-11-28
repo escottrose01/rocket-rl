@@ -83,15 +83,16 @@ class Game(object):
 
 if __name__ == '__main__':
     rocket = Rocket((WIDTH/2, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
-    plane = PlaneGravitySource(9.8, GROUND_Y)
+    # plane = PlaneGravitySource(9.8, GROUND_Y)
+    plane = PlaneGravitySource(1, GROUND_Y)
     all_sprites.add(Circle(WIDTH//2, TARGET_Y, 5))
     all_sprites.add(rocket.plume_sprite)
     all_sprites.add(rocket.rocket_sprite)
     all_sprites.add(plane.sprite)
 
     target = (WIDTH//2 + 50, TARGET_Y)
-    # controller = PlayerController(rocket)
-    controller = PIDController(rocket, target, 1.0, 0.0001, 2.3)
+    controller = PlayerController(rocket)
+    # controller = PIDController(rocket, target, 1.0, 0.0001, 2.3)
     # controller = OnOffController(rocket, target)
 
     Game(rocket, controller).run()
