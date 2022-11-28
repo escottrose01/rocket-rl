@@ -24,7 +24,7 @@ class Rocket(RigidBody):
             controller (Controller, optional): the Controller object used to fly
                 this rocket. Defaults to None.
         """
-        super().__init__(mass, 100., position, 0.)
+        super().__init__(mass, 100., position, 0., 16, 16)
         self._max_thrust = max_thrust
         self._max_torque = max_torque
         self._thrust = 0.

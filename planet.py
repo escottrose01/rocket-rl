@@ -3,7 +3,7 @@
 import numpy as np
 import pygame
 
-from physics import RigidBody, Physics
+from physics import RigidBody, Physics, Collision
 
 
 class GravitySource(RigidBody):
@@ -31,10 +31,20 @@ class GravitySource(RigidBody):
 class PlaneGravitySource(RigidBody):
     """A static plane with a gravitational pull."""
 
-    def __init__(self, a, height):
+    def __init__(self, a: float, height: float, bounce: float = 0.0, friction: float = 0.0):
+        """Initialize a new PlaneGravitySource instance.
+
+        Args:
+            a (float): the acceleration to apply to other RigidBodies.
+            height (float): the height (pixels) above the ground.
+            bounce (float): the bounciness of the surface.
+            friction (float): the friction of the surface.
+        """
         super().__init__(np.Infinity, np.Infinity, (0, height), 0)
         self._a = a
         self._height = height
+        self._bounce = bounce
+        self._friction = friction
 
         # pygame graphics
         self.sprite = PlaneGravitySource.Sprite(self._height)
@@ -43,10 +53,12 @@ class PlaneGravitySource(RigidBody):
         for b in Physics.instance().bodies:
             if b is not self:
                 b.add_force(self._a * b.mass * np.array((0, 1), dtype=np.float64))
+
                 if b.position[1] > self._height:
                     position = np.array((b.position[0], self._height), dtype=np.float64)
                     direction = np.array((0, -1), dtype=np.float64)
-                    Physics.instance().add_collision((b, position, direction))
+                    collision = Collision(b, position, direction, b.velocity, self._bounce, self._friction)
+                    Physics.instance().add_collision(collision)
 
     def step(self, dt):
         pass

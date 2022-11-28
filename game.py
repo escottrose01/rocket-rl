@@ -22,6 +22,8 @@ FPS = 60
 SCALE = 2
 
 GROUND_Y = 550
+GROUND_BOUNCE = 0.4
+GROUND_FRICTION = 2.5
 TARGET_Y = 200
 
 ROCKET_MASS = 27670.
@@ -83,8 +85,8 @@ class Game(object):
 
 if __name__ == '__main__':
     rocket = Rocket((WIDTH/2, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
-    # plane = PlaneGravitySource(9.8, GROUND_Y)
-    plane = PlaneGravitySource(1, GROUND_Y)
+    plane = PlaneGravitySource(9.8, GROUND_Y, GROUND_BOUNCE, GROUND_FRICTION)
+    # plane = PlaneGravitySource(1, GROUND_Y, 0.2)
     all_sprites.add(Circle(WIDTH//2, TARGET_Y, 5))
     all_sprites.add(rocket.plume_sprite)
     all_sprites.add(rocket.rocket_sprite)
