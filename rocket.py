@@ -1,7 +1,7 @@
 import numpy as np
 import pygame
 
-from physics import RigidBody
+from engine import RigidBody
 
 
 # forward declaration of classes
@@ -12,7 +12,7 @@ class TrajectoryInfo:
 class Rocket(RigidBody):
     """A rocket equipped with a bottom thruster and reaction control systmes."""
 
-    def __init__(self, position: list, mass: float, max_thrust: float, max_torque: float):
+    def __init__(self, position: list, mass: float, max_thrust: float, max_torque: float, rocket_sprite: str = 'res/lander.png', plume_sprite: str = 'res/plume.png'):
         """Initializes a new Rocket instance.
 
         Args:
@@ -23,6 +23,8 @@ class Rocket(RigidBody):
             max_torque (float): the maximum torque from this rocket's reaction control system.
             controller (Controller, optional): the Controller object used to fly
                 this rocket. Defaults to None.
+            rocket_sprite (str, optional): The location of the sprite for the rocket. Defaults to 'res/lander.png'.
+            plume_sprite (str, optional): The location of the sprite for the plume. Defaults to 'res/plume.png'.
         """
         super().__init__(mass, 100., position, 0., 16, 16)
         self._max_thrust = max_thrust
@@ -31,8 +33,8 @@ class Rocket(RigidBody):
         self._torque = 0.
 
         # pygame graphics
-        self.rocket_sprite = Rocket.Sprite('res/lander.png', self.position[0], self.position[1])
-        self.plume_sprite = Rocket.Sprite('res/plume.png', self.position[0], self.position[1])
+        self._rocket_sprite = Rocket.Sprite(rocket_sprite, self.position[0], self.position[1])
+        self._plume_sprite = Rocket.Sprite(plume_sprite, self.position[0], self.position[1])
 
     def update(self, dt):
         thrust_force = self._max_thrust * self._thrust * self.heading
@@ -45,12 +47,12 @@ class Rocket(RigidBody):
         x = self.position[0]
         y = self.position[1]
 
-        self.rocket_sprite.transform(x, y, self.rotation)
+        self._rocket_sprite.transform(x, y, self.rotation)
 
-        x -= (self.rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[0]
-        y -= (self.rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[1]
+        x -= (self._rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[0]
+        y -= (self._rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[1]
 
-        self.plume_sprite.transform(x, y, self.rotation)
+        self._plume_sprite.transform(x, y, self.rotation)
 
     @property
     def position_obs(self) -> np.ndarray:
@@ -141,6 +143,9 @@ class Rocket(RigidBody):
             TrajectoryInfo: the current trajectory of this rocket.
         """
         return TrajectoryInfo(self)
+
+    def get_sprites(self) -> pygame.sprite.Sprite:
+        return self._plume_sprite, self._rocket_sprite
 
     class Sprite(pygame.sprite.Sprite):
         """A simple subclass to facilitate graphics."""

@@ -1,10 +1,156 @@
-"""A rigid body physics simulator."""
+"""A simple 2D game engine."""
 
 import numpy as np
+import pygame
+from pygame.locals import (
+    K_ESCAPE,
+    KEYDOWN,
+    QUIT,
+)
+
+TITLE = 'RL-Rocket'
+WIDTH = 800
+HEIGHT = 600
+
+FPS = 60
+SCALE = 2
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+
+CONSISTENT_PHYSICS = True
+
+pygame.init()
+screen = pygame.display.set_mode([WIDTH, HEIGHT])
+
+game_instance = None
+
+# forward declaration of classes
 
 
-class RigidBody(object):
+class Game:
+    pass
+
+
+class GameObject(object):
+    """An abstract game object type. Subclases should override the get_sprite method to facilitate rendering."""
+
+    def __init__(self, game: Game = None):
+        self._game = game or Game.instance()
+        self._game.add_object(self)
+
+    def destroy(self):
+        self._game.remove_object(self)
+
+    def get_sprites(self) -> pygame.sprite.Sprite:
+        return pygame.sprite.Sprite()
+
+
+class Game(object):
+    """Manages the rocket game engine."""
+
+    def __init__(self, callbacks: list = []):
+        """Initializes a new Game instance.
+
+        Args:
+            callbacks (list, optional): the list of functions to call after each game loop. Defaults to [].
+        """
+        global game_instance
+        if game_instance is not None:
+            raise Exception('Error: physics instance already exists')
+
+        self._callbacks = callbacks
+        self._graphics = True
+        self._run = True
+        self._objects = []
+
+    def instance():
+        global game_instance
+        if game_instance is None:
+            game_instance = Game()
+        return game_instance
+
+    @property
+    def graphics(self) -> bool:
+        """Returns the current graphics setting of this game.
+
+        Returns:
+            bool: whether or not this game renders updates.
+        """
+        return self._graphics
+
+    @graphics.setter
+    def graphics(self, value: bool):
+        """Sets the graphics setting of this game.
+
+        Args:
+            value (bool): whether or not this game should render updates.
+        """
+        self._graphics = value
+
+    def register_callback(self, f):
+        """Registers a callback to this game instance.
+
+        Args:
+            f (function): the callback.
+        """
+        self._callbacks.append(f)
+
+    def add_object(self, obj: GameObject):
+        self._objects.append(obj)
+
+    def delete_object(self, obj: GameObject):
+        self._objects.remove(obj)
+
+    def render(self):
+        screen.fill(BLACK)
+        for obj in self._objects:
+            for entity in obj.get_sprites():
+                screen.blit(entity.image, entity.rect)
+
+    def end(self):
+        """Ends the game, but does not close the pygame window."""
+        self._run = False
+
+    def run(self):
+        """Runs the simulation until the user closes out."""
+
+        clock = pygame.time.Clock()
+
+        while self._run:
+            # simulation update
+            if self._graphics:
+                dt = SCALE * clock.tick(FPS) / 1000
+            else:
+                dt = dt = SCALE / FPS
+
+            if CONSISTENT_PHYSICS:
+                dt = dt = SCALE / FPS
+
+            Physics.instance().step(dt)
+
+            # graphics
+            if self._graphics:
+                for event in pygame.event.get():
+                    if event.type == KEYDOWN:
+                        if event.key == K_ESCAPE:
+                            return
+                    elif event.type == QUIT:
+                        return
+
+                self.render()
+
+                pygame.display.flip()
+
+            # callbacks
+            for f in self._callbacks:
+                f(self)
+
+
+class RigidBody(GameObject):
     """An abstract rigid body."""
+
+    # TODO(escottrose01): Add generic rigidbody collision detection and resolution.
 
     def __init__(self, mass: float, moment_of_inertia: float, position: list, rotation: float, width: float = 0.0, height: float = 0.0):
         """Initializes a new RigidBody instance.
@@ -17,6 +163,8 @@ class RigidBody(object):
             width (float): the width of the collider on this body.
             height (float): the height of the collider on this body.
         """
+        super().__init__()
+
         # physical properties
         self._m = mass
         self._mi = moment_of_inertia
@@ -213,14 +361,15 @@ physics_instance = None
 class Physics(object):
     """A simulation to keep track of several bodies and their interactions"""
 
-    # TODO(escottrose01): Capture collisions inside a class, not tuples
-    # TODO(escottrose01): Add better friction on ground collisions
-
     def instance():
         global physics_instance
         if physics_instance is None:
             physics_instance = Physics()
         return physics_instance
+
+    def reset():
+        global physics_instance
+        physics_instance = None
 
     def __init__(self, bodies: list = [], listeners: list = []):
         """Initializes a new Physics instance.
@@ -232,6 +381,7 @@ class Physics(object):
         Raises:
             Exception: The Physics class follows the singleton pattern, and only a single instance may be created.
         """
+        super().__init__()
         if physics_instance is not None:
             raise Exception('Error: physics instance already exists')
         self._bodies = bodies

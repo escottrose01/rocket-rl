@@ -3,7 +3,7 @@
 import numpy as np
 import pygame
 
-from physics import RigidBody, Physics, Collision
+from engine import RigidBody, Physics, Collision
 
 
 class GravitySource(RigidBody):
@@ -47,7 +47,7 @@ class PlaneGravitySource(RigidBody):
         self._friction = friction
 
         # pygame graphics
-        self.sprite = PlaneGravitySource.Sprite(self._height)
+        self._sprite = PlaneGravitySource.Sprite(self._height)
 
     def update(self, dt):
         for b in Physics.instance().bodies:
@@ -62,6 +62,9 @@ class PlaneGravitySource(RigidBody):
 
     def step(self, dt):
         pass
+
+    def get_sprites(self) -> pygame.sprite.Sprite:
+        return self._sprite,
 
     class Sprite(pygame.sprite.Sprite):
         def __init__(self, height):

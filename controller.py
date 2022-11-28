@@ -18,7 +18,7 @@ from pygame.locals import (
     QUIT,
 )
 
-from physics import UpdateListener
+from engine import UpdateListener
 from rocket import Rocket, TrajectoryInfo
 
 
@@ -36,7 +36,7 @@ def sigmoid(x: float) -> float:
 
 
 class RocketController(UpdateListener):
-    """A base class for a rocket controller."""
+    """An absract base class for a rocket controller."""
 
     def __init__(self, rocket: Rocket):
         """Initializes a new RocketController instance.
