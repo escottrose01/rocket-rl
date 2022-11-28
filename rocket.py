@@ -47,10 +47,28 @@ class Rocket(RigidBody):
 
         self.rocket_sprite.transform(x, y, self.rotation)
 
-        x -= (self.rocket_sprite.image_.get_height()-4) * self._thrust * self.heading[0]
-        y -= (self.rocket_sprite.image_.get_height()-4) * self._thrust * self.heading[1]
+        x -= (self.rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[0]
+        y -= (self.rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[1]
 
         self.plume_sprite.transform(x, y, self.rotation)
+
+    @property
+    def position_obs(self) -> np.ndarray:
+        """Returns a noisy observation of this rocket's position.
+
+        Returns:
+            np.ndarray: the observation of this rocket's position.
+        """
+        return super().position
+
+    @property
+    def velocity_obs(self) -> np.ndarray:
+        """Returns a noisy observation of this rocket's velocity.
+
+        Returns:
+            np.ndarray: the observation of this rocket's velocity.
+        """
+        return super().velocity
 
     @property
     def thrust(self) -> float:
@@ -147,6 +165,26 @@ class Rocket(RigidBody):
             self.rect_.midbottom = (x, y)
             self.image = pygame.transform.rotate(self.image_, -np.degrees(angle))
             self.rect = self.image.get_rect(center=self.rect_.center)
+
+
+class NoisyRocket(Rocket):
+    """A rocket which produces noisy inputs and outputs."""
+
+    @property
+    def position_obs(self) -> np.ndarray:
+        return np.random.uniform(-5, 5, (2,)) + super().position
+
+    @property
+    def velocity_obs(self) -> np.ndarray:
+        return np.random.uniform(-5, 5, (2,)) + super().velocity
+
+    def update(self, dt):
+        noise = np.random.normal()/5.0
+        thrust = self._thrust + noise
+        thrust = min(1.0, max(0.0, thrust))
+        thrust_force = self._max_thrust * thrust * self.heading
+        self.add_force(thrust_force)
+        self.add_torque(self._torque * self._max_torque)
 
 
 class TrajectoryInfo:

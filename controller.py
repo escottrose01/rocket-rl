@@ -160,7 +160,7 @@ class HoverRocketController(RocketController):
         Returns:
             np.ndarray: the vector error between target and current positions.
         """
-        return self._target - self._rocket.position
+        return self._target - self._rocket.position_obs
 
 
 class OnOffController(HoverRocketController):
