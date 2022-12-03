@@ -1,7 +1,8 @@
 import pygame
+import numpy as np
 
-from engine import GameObject, Game
-from controller import RocketController, PlayerController, PIDController, OnOffController
+from engine import GameObject, Game, Physics
+from controller import RocketController, PlayerController, PIDController, OnOffController, DQNController
 from planet import PlaneGravitySource
 from rocket import Rocket, NoisyRocket
 from util import Circle
@@ -21,20 +22,23 @@ game = Game.instance()
 
 all_sprites = pygame.sprite.Group()
 
-target = (150, TARGET_Y)
+target = (650, TARGET_Y)
 
-rocket = Rocket((150, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
-rocket2 = Rocket((100, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
-# rocket = NoisyRocket((WIDTH/2, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
+myrocket = Rocket((600, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
 plane = PlaneGravitySource(GRAVITY, GROUND_Y, GROUND_BOUNCE, GROUND_FRICTION)
+Circle(*target, 5)
 
-# controller = PIDController(rocket, target, 1.0, 0.0001, 2.3)
-# controller = PIDController(rocket, target, 3.0, 0.0001, 2.3)
-# controller = OnOffController(rocket, target)
+mycontroller = PlayerController(myrocket)
+game.register_callback(lambda _, __: mycontroller.accept_input(pygame.key.get_pressed()))
 
-controller = PlayerController(rocket)
-game.register_callback(lambda _: controller.accept_input(pygame.key.get_pressed()))
+for i in range(1, 10):
+    rocket = Rocket((100 + i*50, GROUND_Y), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
+    kp = np.random.uniform(0.0, 1.0)
+    ki = np.random.uniform(0.0, 0.001)
+    kd = np.random.uniform(0.0, 1.0)
+    controller = PIDController(rocket, target, kp, ki, kd)
 
-controller2 = PIDController(rocket2, target, 1.0, 0.001, 2.3)
+dqn_rocket = Rocket((650, GROUND_Y-100), ROCKET_MASS, ROCKET_THRUST, ROCKET_TORQUE)
+dqn_controller = DQNController(dqn_rocket, (600, TARGET_Y), filename='models/hover-simple-final.h5')
 
 game.run()

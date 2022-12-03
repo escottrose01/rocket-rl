@@ -11,7 +11,6 @@ from pygame.locals import (
 TITLE = 'RL-Rocket'
 WIDTH = 800
 HEIGHT = 600
-
 FPS = 60
 SCALE = 2
 
@@ -32,6 +31,10 @@ class Game:
     pass
 
 
+class Collision:
+    pass
+
+
 class GameObject(object):
     """An abstract game object type. Subclases should override the get_sprite method to facilitate rendering."""
 
@@ -49,7 +52,7 @@ class GameObject(object):
 class Game(object):
     """Manages the rocket game engine."""
 
-    def __init__(self, callbacks: list = []):
+    def __init__(self, callbacks: list = None):
         """Initializes a new Game instance.
 
         Args:
@@ -59,7 +62,7 @@ class Game(object):
         if game_instance is not None:
             raise Exception('Error: physics instance already exists')
 
-        self._callbacks = callbacks
+        self._callbacks = callbacks or []
         self._graphics = True
         self._run = True
         self._objects = []
@@ -107,10 +110,16 @@ class Game(object):
         for obj in self._objects:
             for entity in obj.get_sprites():
                 screen.blit(entity.image, entity.rect)
+        pygame.display.flip()
 
     def end(self):
         """Ends the game, but does not close the pygame window."""
         self._run = False
+
+    def reset(self):
+        self._objects = []
+        self._callbacks = []
+        Physics.reset()
 
     def run(self):
         """Runs the simulation until the user closes out."""
@@ -140,11 +149,32 @@ class Game(object):
 
                 self.render()
 
-                pygame.display.flip()
-
             # callbacks
             for f in self._callbacks:
-                f(self)
+                f(self, dt)
+
+    def step(self, dt):
+        """Steps forward one timestep in the game loop"""
+
+        Physics.instance().step(dt)
+
+        # graphics
+        if self._graphics:
+            for event in pygame.event.get():
+                if event.type == KEYDOWN:
+                    if event.key == K_ESCAPE:
+                        return
+                elif event.type == QUIT:
+                    return
+
+            self.render()
+
+        # callbacks
+        for f in self._callbacks:
+            f(self, dt)
+
+        # clear event queue
+        pygame.event.get()
 
 
 class RigidBody(GameObject):
@@ -287,6 +317,14 @@ class RigidBody(GameObject):
         """
         self._t += torque
 
+    def on_collision(self, collision: Collision):
+        """Called when two rigidbodies collides
+
+        Args:
+            collision (Collision): the collision with this RigidBody.
+        """
+        pass
+
     def update(self, dt: float):
         """Called every simulation timestep.
 
@@ -304,12 +342,13 @@ class RigidBody(GameObject):
         # Linear component
         a = self._f / self._m
         self._v += a * dt
-        self._p += self._v * dt
+        self._p += self._v * dt + 0.5 * a * dt * dt
 
         # Angular component
         aa = self._t / self._mi
         self._av += aa * dt
-        self._r += self._av * dt
+        self._r += self._av * dt + 0.5 * aa * dt * dt
+        # self._r = (self._r % 2*np.pi) - np.pi
 
         # Clear forces
         self._f = np.array((0, 0), dtype=np.float64)
@@ -355,23 +394,23 @@ class Collision(object):
         self.t = np.inner(self.velocity, self.normal)
 
 
-physics_instance = None
+# physics_instance = None
 
 
 class Physics(object):
     """A simulation to keep track of several bodies and their interactions"""
 
+    physics_instance = None
+
     def instance():
-        global physics_instance
-        if physics_instance is None:
-            physics_instance = Physics()
-        return physics_instance
+        if Physics.physics_instance is None:
+            Physics.physics_instance = Physics()
+        return Physics.physics_instance
 
     def reset():
-        global physics_instance
-        physics_instance = None
+        Physics.physics_instance = None
 
-    def __init__(self, bodies: list = [], listeners: list = []):
+    def __init__(self, bodies: list = None, listeners: list = None):
         """Initializes a new Physics instance.
 
         Args:
@@ -381,11 +420,10 @@ class Physics(object):
         Raises:
             Exception: The Physics class follows the singleton pattern, and only a single instance may be created.
         """
-        super().__init__()
-        if physics_instance is not None:
+        if Physics.physics_instance is not None:
             raise Exception('Error: physics instance already exists')
-        self._bodies = bodies
-        self._listeners = listeners
+        self._bodies = bodies or []
+        self._listeners = listeners or []
         self._collisions = []
 
     @property
@@ -435,16 +473,8 @@ class Physics(object):
             b.update(dt)
 
         for c in self._collisions:
-            c.body.position = c.position
-            v_n = max(c.t, -c.bounce * c.t) * c.normal
-            v_t = c.body.velocity - c.t*c.normal
-            s = np.linalg.norm(v_t)
-            if (s != 0):
-                v_t *= max(0, s - c.friction * dt) / s
-            c.body.velocity = v_n + v_t
+            c.body.on_collision(c, dt)
 
-            c.body.angular_velocity = max(0.0, abs(c.body.angular_velocity) -
-                                          c.friction/10 * dt) * np.sign(c.body.angular_velocity)
         self._collisions = []
 
         for b in self._bodies:

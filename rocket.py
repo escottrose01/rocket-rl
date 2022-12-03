@@ -1,7 +1,7 @@
 import numpy as np
 import pygame
 
-from engine import RigidBody
+from engine import RigidBody, Collision
 
 
 # forward declaration of classes
@@ -31,12 +31,15 @@ class Rocket(RigidBody):
         self._max_torque = max_torque
         self._thrust = 0.
         self._torque = 0.
+        self.crashed = False
+        self.grounded = False
 
         # pygame graphics
         self._rocket_sprite = Rocket.Sprite(rocket_sprite, self.position[0], self.position[1])
         self._plume_sprite = Rocket.Sprite(plume_sprite, self.position[0], self.position[1])
 
     def update(self, dt):
+        self.grounded = False
         thrust_force = self._max_thrust * self._thrust * self.heading
         self.add_force(thrust_force)
         self.add_torque(self._torque * self._max_torque)
@@ -62,6 +65,15 @@ class Rocket(RigidBody):
             np.ndarray: the observation of this rocket's position.
         """
         return super().position
+
+    @property
+    def rotation_obs(self) -> float:
+        """Returns a noisy observtion of this rocket's rotation.
+
+        Returns:
+            float: the observation of the rotation of this rocket.
+        """
+        return self.rotation
 
     @property
     def velocity_obs(self) -> np.ndarray:
@@ -136,6 +148,15 @@ class Rocket(RigidBody):
         return np.array([np.sin(self.rotation), -np.cos(self.rotation)])
 
     @property
+    def heading_obs(self) -> np.ndarray:
+        """Returns a noisy observation of the heading of this rocket, equal to (sin(rotation), -cos(rotation))
+
+        Returns:
+            np.ndarray: the observation of the heading of this rocket.
+        """
+        return np.array([np.sin(self.rotation), -np.cos(self.rotation)])
+
+    @property
     def trajectory_info(self) -> TrajectoryInfo:
         """Returns a descriptive summary of the rocket's trajectory.
 
@@ -143,6 +164,22 @@ class Rocket(RigidBody):
             TrajectoryInfo: the current trajectory of this rocket.
         """
         return TrajectoryInfo(self)
+
+    def on_collision(self, collision: Collision, dt: float):
+        self.grounded = True
+        if np.linalg.norm(self.velocity) > 25 or np.cos(self.rotation) < 0:
+            self.crashed = True
+
+        self.position = collision.position
+        v_n = max(collision.t, -collision.bounce * collision.t) * collision.normal
+        v_t = self.velocity - collision.t*collision.normal
+        s = np.linalg.norm(v_t)
+        if (s != 0):
+            v_t *= max(0, s - collision.friction * dt) / s
+        self.velocity = v_n + v_t
+
+        self.angular_velocity = max(0.0, abs(self.angular_velocity) -
+                                    collision.friction/10 * dt) * np.sign(self.angular_velocity)
 
     def get_sprites(self) -> pygame.sprite.Sprite:
         return self._plume_sprite, self._rocket_sprite
@@ -177,19 +214,28 @@ class NoisyRocket(Rocket):
 
     @property
     def position_obs(self) -> np.ndarray:
-        return np.random.uniform(-5, 5, (2,)) + super().position
+        return super().position + np.random.normal(0, 10)
 
     @property
     def velocity_obs(self) -> np.ndarray:
-        return np.random.uniform(-5, 5, (2,)) + super().velocity
+        return super().velocity + np.random.normal(0, 2)
 
-    def update(self, dt):
-        noise = np.random.normal()/5.0
-        thrust = self._thrust + noise
-        thrust = min(1.0, max(0.0, thrust))
-        thrust_force = self._max_thrust * thrust * self.heading
-        self.add_force(thrust_force)
-        self.add_torque(self._torque * self._max_torque)
+    @property
+    def rotation_obs(self) -> float:
+        return super().rotation + np.random.normal(0, 0.03)
+
+    @property
+    def heading_obs(self) -> float:
+        rot = super().rotation + np.random.normal(0, 0.03)
+        return np.array([np.sin(rot), -np.cos(rot)])
+
+    # def update(self, dt):
+    #     noise = np.random.normal()/5.0
+    #     thrust = self._thrust + noise
+    #     thrust = min(1.0, max(0.0, thrust))
+    #     thrust_force = self._max_thrust * thrust * self.heading
+    #     self.add_force(thrust_force)
+    #     self.add_torque(self._torque * self._max_torque)
 
 
 class TrajectoryInfo:

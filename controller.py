@@ -18,8 +18,13 @@ from pygame.locals import (
     QUIT,
 )
 
+import keras
+
 from engine import UpdateListener
 from rocket import Rocket, TrajectoryInfo
+import tensorflow as tf
+
+tf.compat.v1.disable_eager_execution()
 
 
 def sigmoid(x: float) -> float:
@@ -95,7 +100,7 @@ class PlayerController(RocketController):
         Returns:
             float: the thrust of this controller, as a signed percentage of its maximum torque.
         """
-        return self._thrust
+        return self._torque
 
     @torque.setter
     def torque(self, value):
@@ -219,3 +224,62 @@ class PIDController(HoverRocketController):
         self._err_y_prev = error_y
 
         self._rocket.thrust = sigmoid(self._kp * error_y + self._ki * self._err_y_cum + self._kd * derivative_y)
+
+
+class DQNController(HoverRocketController):
+    """A DQN hover controller"""
+
+    # TODO(escottrose01): rewrite observation to not require box size
+    # BOX = np.array([800, 600])
+
+    def __init__(self, rocket: Rocket, target: list, filename: str, control_type='simple'):
+        super().__init__(rocket, target)
+
+        self._model = keras.models.load_model(filename)
+        self._rocket = rocket
+        self._control_type = control_type
+
+        self._old_err_obs = self._target - self._rocket.position_obs
+        self._cum_err_obs = 0.0
+
+    def update(self, dt):
+        super().update(dt)
+
+        obs = self._get_obs(dt).reshape((1, 1, -1))
+        pred = self._model.predict(obs, verbose=False)
+        print(pred.shape)
+        action = np.argmax(pred)
+
+        if self._control_type == 'simple':
+            thrust = action / pred.shape[1]
+            assert thrust >= 0 and thrust <= 1, "Invalid Action"
+            self._rocket.thrust = action
+        elif self._control_type == 'complex':
+            assert action in range(2*3), "Invalid Action"
+            torque = action // 2 - 1
+            thrust = action % 2
+
+            self._rocket.torque = min(1.0, max(-1.0, torque))
+            self._rocket._thrust = min(1.0, max(0.0, thrust))
+        else:
+            raise ValueError()
+
+        self._old_err_obs = self._rocket.position_obs - self._target
+        self._cum_err_obs += dt * (self._target - self._rocket.position_obs)
+
+    def _get_obs(self, dt):
+        position = self._rocket.position_obs  # / DQNController.BOX
+        velocity = self._rocket.velocity_obs  # / DQNController.BOX
+        heading = self._rocket.heading
+        target = self._target  # / DQNController.BOX
+        err_k = (target - position)  # / DQNController.BOX
+        err_d = (err_k - self._old_err_obs) / dt  # / DQNController.BOX
+        err_i = self._cum_err_obs + err_k * dt  # / DQNController.BOX
+        return np.array([position[0], position[1],
+                         velocity[0], velocity[1],
+                         heading[0], heading[1],
+                         target[0], target[1],
+                         err_k[0], err_k[1],
+                         err_d[0], err_d[1],
+                         err_i[0], err_i[1],
+                         self._rocket.angular_velocity])
