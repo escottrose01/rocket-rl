@@ -19,6 +19,13 @@ from pygame.locals import (
 )
 
 import keras
+from keras.models import Sequential
+from keras.layers import Dense, Activation, Flatten
+from keras.optimizers import Adam
+from keras.callbacks import LambdaCallback
+from rl.agents.dqn import DQNAgent
+from rl.policy import EpsGreedyQPolicy, LinearAnnealedPolicy
+from rl.memory import SequentialMemory
 
 from engine import UpdateListener
 from rocket import Rocket, TrajectoryInfo
@@ -55,8 +62,7 @@ class RocketController(UpdateListener):
         self._cur_info = rocket.trajectory_info
         self._prev_info = None
 
-    def update(self, dt):
-        super().update(dt)
+    def on_fixed_update(self, dt):
         self._prev_info = self._cur_info
         self._cur_info = self._rocket.trajectory_info
 
@@ -111,7 +117,7 @@ class PlayerController(RocketController):
         """
         self._torque = min(max(value, -1.0), 1.0)
 
-    def update(self, dt: float):
+    def on_fixed_update(self, dt: float):
         self._rocket.thrust = self._thrust
         self._rocket.torque = self._torque
 
@@ -177,8 +183,8 @@ class OnOffController(HoverRocketController):
     displacement.
     """
 
-    def update(self, dt: float):
-        super().update(dt)
+    def on_fixed_update(self, dt: float):
+        super().on_fixed_update(dt)
 
         if self.error[1] > 0:
             self._rocket.thrust = 0.
@@ -215,52 +221,57 @@ class PIDController(HoverRocketController):
         self.err_x_prev = 0.
         self.err_x_cum = 0.
 
-    def update(self, dt: float):
-        super().update(dt)
+    def on_fixed_update(self, dt: float):
+        super().on_fixed_update(dt)
 
         error_y = -self.error[1]
         self._err_y_cum += error_y * dt
         derivative_y = (error_y - self._err_y_prev) / dt
         self._err_y_prev = error_y
 
-        self._rocket.thrust = sigmoid(self._kp * error_y + self._ki * self._err_y_cum + self._kd * derivative_y)
+        self._rocket.thrust = 1.0-sigmoid(self._kp * error_y + self._ki * self._err_y_cum + self._kd * derivative_y)
 
 
 class DQNController(HoverRocketController):
     """A DQN hover controller"""
 
     # TODO(escottrose01): rewrite observation to not require box size
-    # BOX = np.array([800, 600])
+    GROUND_Y = 550
 
-    def __init__(self, rocket: Rocket, target: list, filename: str, control_type='simple'):
+    def __init__(self, rocket: Rocket, target: list, filename: str, control_type='simple', query_interval=20):
         super().__init__(rocket, target)
 
         self._model = keras.models.load_model(filename)
         self._rocket = rocket
         self._control_type = control_type
+        self.query_interval = query_interval
+        self._iter = 0
+        self._action = None
+        self._nb_actions = self._model.layers[-1].output_shape[1]
 
         self._old_err_obs = self._target - self._rocket.position_obs
         self._cum_err_obs = 0.0
 
-    def update(self, dt):
-        super().update(dt)
+    def on_fixed_update(self, dt):
+        super().on_fixed_update(dt)
 
-        obs = self._get_obs(dt).reshape((1, 1, -1))
-        pred = self._model.predict(obs, verbose=False)
-        print(pred.shape)
-        action = np.argmax(pred)
+        if self._iter == 0:
+            self._iter = self.query_interval
+            obs = self._get_obs(dt).reshape((1, 1, -1))
+            pred = self._model.predict(obs, verbose=False).reshape((-1,)).tolist()
+            self._action = np.argmax(pred)
+        else:
+            self._iter -= 1
 
         if self._control_type == 'simple':
-            thrust = action / pred.shape[1]
-            assert thrust >= 0 and thrust <= 1, "Invalid Action"
-            self._rocket.thrust = action
+            thrust = self._action / self._nb_actions
+            self._rocket.thrust = thrust
         elif self._control_type == 'complex':
-            assert action in range(2*3), "Invalid Action"
-            torque = action // 2 - 1
-            thrust = action % 2
+            torque = self._action // 2 - 1
+            thrust = self._action % 2
 
             self._rocket.torque = min(1.0, max(-1.0, torque))
-            self._rocket._thrust = min(1.0, max(0.0, thrust))
+            self._rocket.thrust = min(1.0, max(0.0, thrust))
         else:
             raise ValueError()
 
@@ -268,18 +279,15 @@ class DQNController(HoverRocketController):
         self._cum_err_obs += dt * (self._target - self._rocket.position_obs)
 
     def _get_obs(self, dt):
-        position = self._rocket.position_obs  # / DQNController.BOX
-        velocity = self._rocket.velocity_obs  # / DQNController.BOX
-        heading = self._rocket.heading
-        target = self._target  # / DQNController.BOX
-        err_k = (target - position)  # / DQNController.BOX
-        err_d = (err_k - self._old_err_obs) / dt  # / DQNController.BOX
-        err_i = self._cum_err_obs + err_k * dt  # / DQNController.BOX
-        return np.array([position[0], position[1],
-                         velocity[0], velocity[1],
-                         heading[0], heading[1],
-                         target[0], target[1],
-                         err_k[0], err_k[1],
-                         err_d[0], err_d[1],
-                         err_i[0], err_i[1],
+        position = self._rocket.position_obs
+        velocity = self._rocket.velocity_obs
+        heading = self._rocket.heading_obs
+        height = position[1] - DQNController.GROUND_Y
+        target = self._target
+        err_k = (target - position)
+        err_d = (err_k - self._old_err_obs) / dt
+        err_i = self._cum_err_obs + err_k * dt
+        return np.array([height, *velocity, *heading, *target,
+                        *err_k, *err_d, *err_i,
+                         self._rocket.rotation_obs,
                          self._rocket.angular_velocity])

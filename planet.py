@@ -20,7 +20,7 @@ class GravitySource(RigidBody):
         """
         super().__init__(mass, np.Infinity, position, 0)
 
-    def update(self):
+    def fixed_update(self):
         for b in Physics.instance().bodies:
             if b is not self:
                 d = b.position - self._p
@@ -49,14 +49,14 @@ class PlaneGravitySource(RigidBody):
         # pygame graphics
         self._sprite = PlaneGravitySource.Sprite(self._height)
 
-    def update(self, dt):
+    def fixed_update(self, dt):
         for b in Physics.instance().bodies:
             if b is not self:
-                b.add_force(self._a * b.mass * np.array((0, 1), dtype=np.float64))
+                b.add_force(self._a * b.mass * np.array((0, -1), dtype=np.float64))
 
-                if b.position[1] > self._height:
+                if b.position[1] < self._height:
                     position = np.array((b.position[0], self._height), dtype=np.float64)
-                    direction = np.array((0, -1), dtype=np.float64)
+                    direction = np.array((0, 1), dtype=np.float64)
                     collision = Collision(b, position, direction, b.velocity, self._bounce, self._friction)
                     Physics.instance().add_collision(collision)
 
@@ -69,7 +69,9 @@ class PlaneGravitySource(RigidBody):
     class Sprite(pygame.sprite.Sprite):
         def __init__(self, height):
             super().__init__()
+            self.ui = False
             self.image_ = pygame.image.load('res/ground.png').convert_alpha()
-            self.rect_ = pygame.Rect(0, height, self.image_.get_width(), self.image_.get_height())
+            self.rect_ = pygame.Rect(0, 0, self.image_.get_width(), self.image_.get_height())
+            self.rect_.bottom = 0
             self.rect = self.rect_
             self.image = self.image_

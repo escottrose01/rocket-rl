@@ -45,8 +45,54 @@ class GameObject(object):
     def destroy(self):
         self._game.remove_object(self)
 
+    def update(self, dt: float):
+        pass
+
     def get_sprites(self) -> pygame.sprite.Sprite:
-        return pygame.sprite.Sprite()
+        return tuple()
+
+
+class Camera(GameObject):
+    """A camera class to facilitate rendering pygame simulations."""
+
+    # TODO(escottrose01): implement rotations
+
+    def __init__(self, x: float = WIDTH//2, y: float = HEIGHT//2, rotation: float = 0, width: float = 800, height: float = 600):
+        """Initializes a new Camera instance.
+
+        Args:
+            x (float, optional): The x-coordinate of the camera center. Defaults to 0.
+            y (float, optional): The y-coordinate of the camera center. Defaults to 0.
+            rotation (float, optional): The rotation of the camera. Defaults to 0.
+            width (float, optional): the width of the camera viewport in world coordinates. Defaults to 400.
+            height (float, optional): the height of the camera viewport in world coordinates. Defaults to 300.
+        """
+        super().__init__()
+
+        self.x = x
+        self.y = y
+        self.rotation = rotation
+        self.width = width
+        self.height = height
+        self.scalex = WIDTH / self.width
+        self.scaley = HEIGHT / self.height
+
+        self._game._camera = self
+
+    def transform(self, sprite: pygame.sprite.Sprite, rect: pygame.rect.Rect):
+        """Transforms an input sprite according to the camera parameters.
+
+        Args:
+            sprite (pygame.sprite.Sprite): The sprite to transform.
+            rect (pygame.rect.Rect): The rect of the sprite.
+        """
+        w, h = rect.w, rect.h
+        x, y = rect.center
+        res_rect = pygame.rect.Rect(0, 0, w, h)
+        res_rect.center = (WIDTH//2 - self.scalex * (self.x - x), HEIGHT//2 - self.scaley * (-self.y + y))
+        sprite = pygame.transform.scale(sprite, (w*self.scalex, h*self.scaley))
+        res_rect = sprite.get_rect(center=res_rect.center)
+        return sprite, res_rect
 
 
 class Game(object):
@@ -66,6 +112,7 @@ class Game(object):
         self._graphics = True
         self._run = True
         self._objects = []
+        self._camera = None
 
     def instance():
         global game_instance
@@ -73,7 +120,7 @@ class Game(object):
             game_instance = Game()
         return game_instance
 
-    @property
+    @ property
     def graphics(self) -> bool:
         """Returns the current graphics setting of this game.
 
@@ -82,7 +129,7 @@ class Game(object):
         """
         return self._graphics
 
-    @graphics.setter
+    @ graphics.setter
     def graphics(self, value: bool):
         """Sets the graphics setting of this game.
 
@@ -109,7 +156,10 @@ class Game(object):
         screen.fill(BLACK)
         for obj in self._objects:
             for entity in obj.get_sprites():
-                screen.blit(entity.image, entity.rect)
+                if self._camera and not entity.ui:
+                    screen.blit(*self._camera.transform(entity.image, entity.rect))
+                else:
+                    screen.blit(entity.image, entity.rect)
         pygame.display.flip()
 
     def end(self):
@@ -136,6 +186,9 @@ class Game(object):
             if CONSISTENT_PHYSICS:
                 dt = dt = SCALE / FPS
 
+            for obj in self._objects:
+                obj.update(dt)
+
             Physics.instance().step(dt)
 
             # graphics
@@ -155,6 +208,9 @@ class Game(object):
 
     def step(self, dt):
         """Steps forward one timestep in the game loop"""
+
+        for obj in self._objects:
+            obj.update(dt)
 
         Physics.instance().step(dt)
 
@@ -212,7 +268,7 @@ class RigidBody(GameObject):
 
         Physics.instance().add_body(self)
 
-    @property
+    @ property
     def position(self) -> np.ndarray:
         """Returns the position of this body in world coordinates.
 
@@ -221,7 +277,7 @@ class RigidBody(GameObject):
         """
         return self._p
 
-    @position.setter
+    @ position.setter
     def position(self, value: list):
         """Sets the position of this body
 
@@ -230,7 +286,7 @@ class RigidBody(GameObject):
         """
         self._p = np.array(value)
 
-    @property
+    @ property
     def rotation(self) -> float:
         """Returns the rotation of this body in world coordinates.
 
@@ -239,7 +295,7 @@ class RigidBody(GameObject):
         """
         return self._r
 
-    @property
+    @ property
     def mass(self) -> float:
         """Returns the mass of this body.
 
@@ -248,7 +304,7 @@ class RigidBody(GameObject):
         """
         return self._m
 
-    @property
+    @ property
     def velocity(self) -> np.ndarray:
         """Returns the velocity of this body.
 
@@ -257,7 +313,7 @@ class RigidBody(GameObject):
         """
         return self._v
 
-    @velocity.setter
+    @ velocity.setter
     def velocity(self, value: list):
         """Sets the velocity of this body.
 
@@ -266,7 +322,7 @@ class RigidBody(GameObject):
         """
         self._v = np.array(value)
 
-    @property
+    @ property
     def angular_velocity(self) -> float:
         """Returns the angular velocity of this body.
 
@@ -275,7 +331,7 @@ class RigidBody(GameObject):
         """
         return self._av
 
-    @angular_velocity.setter
+    @ angular_velocity.setter
     def angular_velocity(self, value: float):
         """Sets the angular velocity of this body.
 
@@ -284,7 +340,7 @@ class RigidBody(GameObject):
         """
         self._av = value
 
-    @property
+    @ property
     def collider(self) -> list:
         """Returns the rectangle collider of this body, as a list of four points.
 
@@ -325,7 +381,7 @@ class RigidBody(GameObject):
         """
         pass
 
-    def update(self, dt: float):
+    def fixed_update(self, dt: float):
         """Called every simulation timestep.
 
         Args:
@@ -348,7 +404,6 @@ class RigidBody(GameObject):
         aa = self._t / self._mi
         self._av += aa * dt
         self._r += self._av * dt + 0.5 * aa * dt * dt
-        # self._r = (self._r % 2*np.pi) - np.pi
 
         # Clear forces
         self._f = np.array((0, 0), dtype=np.float64)
@@ -363,7 +418,7 @@ class UpdateListener(object):
         """
         Physics.instance().add_listener(self)
 
-    def update(self, dt):
+    def on_fixed_update(self, dt):
         """Called once every simulation timestep.
 
         Args:
@@ -426,7 +481,7 @@ class Physics(object):
         self._listeners = listeners or []
         self._collisions = []
 
-    @property
+    @ property
     def bodies(self) -> list:
         """Returns the list of bodies being simulated.
 
@@ -467,10 +522,10 @@ class Physics(object):
             dt (float): The elapsed time (ms) since the previous timestep.
         """
         for l in self._listeners:
-            l.update(dt)
+            l.on_fixed_update(dt)
 
         for b in self._bodies:
-            b.update(dt)
+            b.fixed_update(dt)
 
         for c in self._collisions:
             c.body.on_collision(c, dt)

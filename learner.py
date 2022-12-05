@@ -1,27 +1,19 @@
-import pygame
-
 from gym import Env
 from gym.spaces import Box, Discrete
 import numpy as np
 
-import h5py
-
-from engine import Game
+from engine import Game, Camera
 from rocket import Rocket
 from controller import PlayerController
 from planet import PlaneGravitySource
 from util import Circle, Text
-from policy import RepEpsGreedyPolicy
+from camera import FollowCamera
 
-GROUND_Y = 750
+GROUND_Y = 0
 GROUND_BOUNCE = 0.4
 GROUND_FRICTION = 2.5
-TARGET_Y = 200
 
 GRAVITY = 9.8
-
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
 
 
 class LearningEnv(Env):
@@ -32,6 +24,7 @@ class LearningEnv(Env):
         self.timestep = 1/60
         self.rounds = 10000
         self.collected_reward = 0
+        self.reward_history = []
         self.state = None
 
         self._rocket, self._controller = self.build_rocket()
@@ -53,6 +46,9 @@ class LearningEnv(Env):
 
         self.collected_reward += rw
 
+        if done:
+            self.reward_history.append(self.collected_reward)
+
         return obs, rw, done, info
 
     def reset(self):
@@ -63,6 +59,7 @@ class LearningEnv(Env):
         self.rounds = 10000
         self.collected_reward = 0
         self.state = None
+        Camera(y=300-25)
 
     def get_obs(self):
         raise NotImplementedError()
@@ -86,16 +83,16 @@ class LearningEnv(Env):
         Game.instance().render()
 
 
-class SimpleLearningEnv(LearningEnv):
+class SimpleHoverEnv(LearningEnv):
     def __init__(self, resolution=10, fix_target=False, fix_rocket=False):
+        self._fix_rocket = fix_rocket
+        self._fix_target = fix_target
+
         super().__init__()
 
         self._w = 800
         self._h = 800
         self._box = np.array([self._w, self._h])
-
-        self._fix_rocket = fix_rocket
-        self._fix_target = fix_target
 
         self.reset()
 
@@ -140,11 +137,11 @@ class SimpleLearningEnv(LearningEnv):
 
     def get_reward(self):
         # reward proximity to target
-        err = (self._target[1] - self._rocket.position[1]) / self._h
+        err = (self._target[1] - self._rocket.position[1])
         rw = -0.001 * self.timestep
-        if abs(err) < 0.2:
-            rw += 2.0 * self.timestep
-        if abs(err) < 0.1:
+        if abs(err) < 150:
+            rw += 1.0 * self.timestep
+        if abs(err) < 50:
             rw += 1.0 * self.timestep
         if self._rocket.grounded:
             rw -= 0.1 * self.timestep
@@ -152,7 +149,6 @@ class SimpleLearningEnv(LearningEnv):
         return rw
 
     def is_done(self):
-        # return self._rocket.crashed or self.rounds == 0 or self._rocket.position[1] < -2*self._h
         return self.rounds == 0 or self._rocket.crashed
 
     def apply_action(self, action):
@@ -162,13 +158,12 @@ class SimpleLearningEnv(LearningEnv):
         mass = 27670.
         max_thrust = 410000.
         max_torque = 25.
-        # pos = np.array([400, GROUND_Y - np.random.uniform(0, 200)])
         if self._fix_rocket:
             pos = np.array([400, 400])
             vel = np.array([0, 0])
         else:
-            pos = np.array([400, np.random.uniform(0, 400.0 + np.random.uniform(-100.0, 100.0))])
-            vel = np.array([0, np.random.uniform(-20.0, 20.0)])
+            pos = np.array([400, 400.0 + np.random.uniform(-200.0, 300.0)])
+            vel = np.array([0, np.random.uniform(-30.0, 30.0)])
 
         rocket = Rocket(pos, mass, max_thrust, max_torque)
         rocket.velocity = vel
@@ -180,7 +175,7 @@ class SimpleLearningEnv(LearningEnv):
         if self._fix_target:
             return np.array([400, 400])
         else:
-            return np.array([400, np.random.uniform(0, 400.0 + np.random.uniform(-100.0, 100.0))])
+            return np.array([400, 400.0 + np.random.uniform(-200.0, 300.0)])
 
     def get_obs(self):
         position = self._rocket.position_obs
@@ -193,12 +188,6 @@ class SimpleLearningEnv(LearningEnv):
         err_i = self._cum_err_obs + err_k * self.timestep
         return np.array([height, *velocity, *heading, *target,
                         *err_k, *err_d, *err_i,
-                         # velocity[0], velocity[1],
-                         #  heading[0], heading[1],
-                         #  target[0], target[1],
-                         #  err_k[0], err_k[1],
-                         #  err_d[0], err_d[1],
-                         #  err_i[0], err_i[1],
                          self._rocket.rotation_obs,
                          self._rocket.angular_velocity])
 
@@ -207,53 +196,76 @@ class SimpleLearningEnv(LearningEnv):
             Game.instance().render()
 
 
-class ComplexLearningEnv(SimpleLearningEnv):
-    def __init__(self):
-        super().__init__()
-
+class ComplexHoverEnv(SimpleHoverEnv):
+    def __init__(self, fix_target=False, fix_rocket=False):
         self._w = 800
         self._h = 600
         self._box = np.array([self._w, self._h])
 
+        super().__init__(fix_target=fix_target, fix_rocket=fix_rocket)
+
         # initialize learning environment
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=self.get_obs().shape)
-        self.action_space = Discrete(2*3)
+        self.action_space = Discrete(11*5)
 
         self.reset()
 
-    def make_target(self):
-        return np.array([np.random.uniform(0, self._w), np.random.uniform(0, GROUND_Y-100)])
-
     def get_reward(self):
+        # reward survival
+        rw = 0.01 * self.timestep
+
         # reward proximity to target
-        err = 1/self._box * (self._target - self._rocket.position)
+        err = self._target - self._rocket.position
         d = np.linalg.norm(err)
-        rw += 0.2 * (1.0 - d)
+        if d < 300:
+            rw += 0.1 * self.timestep
+        if d < 150:
+            rw += 1.0 * self.timestep
+        if d < 50:
+            rw += 1.0 * self.timestep
 
-        # reward movement towards target from far away
-        v = self._rocket.velocity / self._box
-        rw += 0.1 * d * np.inner(v, err)
+        # reward positive orientation
+        if self._rocket.heading[1] > 0.85 and self._rocket.velocity[1] > -50.0:
+            rw += 0.1 * self.timestep
 
-        # reward orientation and motion of rocket
-        if abs(self._rocket.rotation) < np.pi/6:
-            rw += 0.1
-        else:
-            rw += 0.1 * (1.0 - abs(self._rocket.rotation) / (0.5 * np.pi))
+        # punish unstable behaviors
+        if abs(self._rocket.angular_velocity) > 1.5:
+            rw = -1.0 * self.timestep
+        # elif self._rocket.heading[1] < 0:
+        #     rw = 0
 
-        if abs(self._rocket.rotation) > np.pi/2:
-            rw = min(rw, 0)
-        if abs(self._rocket.angular_velocity) > np.pi:
-            rw = min(rw, 0)
-
-        # scale reward
-        return rw * self.timestep
+        return rw
 
     def apply_action(self, action):
-        torque = action // 2 - 1
-        thrust = action % 2
+        torque = (action // 11 - 2) / 2.0
+        thrust = 0.1*(action % 11)
 
         self._controller.torque = min(1.0, max(-1.0, torque))
         self._controller.thrust = min(1.0, max(0.0, thrust))
+
+    def build_rocket(self):
+        mass = 27670.
+        max_thrust = 410000.
+        max_torque = 25.
+        if self._fix_rocket:
+            pos = np.array([400.0, 500.0])
+            # vel = np.array([0.0, 0.0])
+            vel = np.array([np.random.uniform(-1.0, 1.0), 0])
+        else:
+            pos = np.array([np.random.uniform(0, self._w), np.random.uniform(200.0, 700.0)])
+            vel = np.array([np.random.uniform(-5.0, 5), np.random.uniform(-30.0, 30.0)])
+
+        rocket = Rocket(pos, mass, max_thrust, max_torque)
+        rocket.velocity = vel
+        controller = PlayerController(rocket)
+
+        return rocket, controller
+
+    def make_target(self):
+        if self._fix_target:
+            return np.array([400, 500])
+        else:
+            return np.array([np.random.uniform(0, self._w), np.random.uniform(200.0, 700.0)])
 
 
 if __name__ == '__main__':
@@ -269,7 +281,7 @@ if __name__ == '__main__':
     import os
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-    env = SimpleLearningEnv()
+    env = SimpleHoverEnv()
 
     nb_actions = env.action_space.n
 
@@ -292,6 +304,6 @@ if __name__ == '__main__':
     checkpoint = LambdaCallback(on_epoch_end=lambda epoch, logs: epoch %
                                 200 == 0 and dqn.model.save(f'models/hover-example-ep{epoch}.h5'))
 
-    dqn.fit(env, nb_steps=50000, visualize=True, verbose=1,
+    dqn.fit(env, nb_steps=500000, visualize=True, verbose=1,
             log_interval=10000, callbacks=[checkpoint], action_repetition=10)
     dqn.model.save('models/hover-example-final.h5')

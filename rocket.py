@@ -12,7 +12,7 @@ class TrajectoryInfo:
 class Rocket(RigidBody):
     """A rocket equipped with a bottom thruster and reaction control systmes."""
 
-    def __init__(self, position: list, mass: float, max_thrust: float, max_torque: float, rocket_sprite: str = 'res/lander.png', plume_sprite: str = 'res/plume.png'):
+    def __init__(self, position: np.ndarray, mass: float, max_thrust: float, max_torque: float, rocket_sprite: str = 'res/lander.png', plume_sprite: str = 'res/plume.png'):
         """Initializes a new Rocket instance.
 
         Args:
@@ -39,14 +39,6 @@ class Rocket(RigidBody):
         self._plume_sprite = Rocket.Sprite(plume_sprite, self.position[0], self.position[1])
 
     def update(self, dt):
-        self.grounded = False
-        thrust_force = self._max_thrust * self._thrust * self.heading
-        self.add_force(thrust_force)
-        self.add_torque(self._torque * self._max_torque)
-
-    def step(self, dt):
-        super().step(dt)
-
         x = self.position[0]
         y = self.position[1]
 
@@ -56,6 +48,12 @@ class Rocket(RigidBody):
         y -= (self._rocket_sprite.image_.get_height()-2) * self._thrust * self.heading[1]
 
         self._plume_sprite.transform(x, y, self.rotation)
+
+    def fixed_update(self, dt):
+        self.grounded = False
+        thrust_force = self._max_thrust * self._thrust * self.heading
+        self.add_force(thrust_force)
+        self.add_torque(self._torque * self._max_torque)
 
     @property
     def position_obs(self) -> np.ndarray:
@@ -140,21 +138,21 @@ class Rocket(RigidBody):
 
     @property
     def heading(self) -> np.ndarray:
-        """Returns the heading of this rocket, equal to (sin(rotation), -cos(rotation))
+        """Returns the heading of this rocket, equal to (sin(rotation), cos(rotation))
 
         Returns:
             np.ndarray: the heading of this rocket.
         """
-        return np.array([np.sin(self.rotation), -np.cos(self.rotation)])
+        return np.array([np.sin(self.rotation), np.cos(self.rotation)])
 
     @property
     def heading_obs(self) -> np.ndarray:
-        """Returns a noisy observation of the heading of this rocket, equal to (sin(rotation), -cos(rotation))
+        """Returns a noisy observation of the heading of this rocket, equal to (sin(rotation), cos(rotation))
 
         Returns:
             np.ndarray: the observation of the heading of this rocket.
         """
-        return np.array([np.sin(self.rotation), -np.cos(self.rotation)])
+        return np.array([np.sin(self.rotation), np.cos(self.rotation)])
 
     @property
     def trajectory_info(self) -> TrajectoryInfo:
@@ -189,9 +187,10 @@ class Rocket(RigidBody):
 
         def __init__(self, fname, x, y):
             super().__init__()
+            self.ui = False
             self.image_ = pygame.image.load(fname).convert_alpha()
             self.rect_ = pygame.Rect(0, 0, self.image_.get_width(), self.image_.get_height())
-            self.rect_.midbottom = (x, y)
+            self.rect_.midtop = (x, y)
             self.rect = self.rect_
             self.image = self.image_
 
@@ -204,7 +203,7 @@ class Rocket(RigidBody):
                 angle (float): the orientation of the transformed sprite, in radians.
             """
             self.rect_ = pygame.Rect(0, 0, self.image_.get_width(), self.image_.get_height())
-            self.rect_.midbottom = (x, y)
+            self.rect_.midtop = (x, y)
             self.image = pygame.transform.rotate(self.image_, -np.degrees(angle))
             self.rect = self.image.get_rect(center=self.rect_.center)
 
