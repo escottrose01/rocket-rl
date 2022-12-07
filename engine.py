@@ -404,6 +404,7 @@ class RigidBody(GameObject):
         aa = self._t / self._mi
         self._av += aa * dt
         self._r += self._av * dt + 0.5 * aa * dt * dt
+        self._r = (self._r - np.pi) % (2*np.pi) - np.pi
 
         # Clear forces
         self._f = np.array((0, 0), dtype=np.float64)

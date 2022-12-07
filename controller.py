@@ -62,6 +62,11 @@ class RocketController(UpdateListener):
         self._cur_info = rocket.trajectory_info
         self._prev_info = None
 
+        # used for control
+        # TODO(escottrose01): homogenize usage
+        self.target_rotation = 0.0
+        self.target_position = self._rocket.position
+
     def on_fixed_update(self, dt):
         self._prev_info = self._cur_info
         self._cur_info = self._rocket.trajectory_info
@@ -186,7 +191,7 @@ class OnOffController(HoverRocketController):
     def on_fixed_update(self, dt: float):
         super().on_fixed_update(dt)
 
-        if self.error[1] > 0:
+        if self.error[1] < 0:
             self._rocket.thrust = 0.
         else:
             self._rocket.thrust = 1.
@@ -235,9 +240,6 @@ class PIDController(HoverRocketController):
 class DQNController(HoverRocketController):
     """A DQN hover controller"""
 
-    # TODO(escottrose01): rewrite observation to not require box size
-    GROUND_Y = 550
-
     def __init__(self, rocket: Rocket, target: list, filename: str, control_type='simple', query_interval=20):
         super().__init__(rocket, target)
 
@@ -251,6 +253,7 @@ class DQNController(HoverRocketController):
 
         self._old_err_obs = self._target - self._rocket.position_obs
         self._cum_err_obs = 0.0
+        self._old_rot_err_obs = self.target_rotation - self._rocket.rotation_obs
 
     def on_fixed_update(self, dt):
         super().on_fixed_update(dt)
@@ -266,28 +269,57 @@ class DQNController(HoverRocketController):
         if self._control_type == 'simple':
             thrust = self._action / self._nb_actions
             self._rocket.thrust = thrust
-        elif self._control_type == 'complex':
-            torque = self._action // 2 - 1
-            thrust = self._action % 2
+        elif self._control_type == 'direct':
+            torque = (action // 11 - 2) / 2.0
+            thrust = 0.1*(action % 11)
+            self.torque = min(1.0, max(-1.0, torque))
+            self.thrust = min(1.0, max(0.0, thrust))
+        elif self._control_type == 'indirect':
+            dtorque = 1.0 * dt * (action % 3 - 1)
+            dthrust = 1.0 * dt * (action // 3 - 1)
+            torque = self.torque
+            thrust = self.thrust
+            self.torque = min(1.0, max(-1.0, torque + dtorque))
+            self.thrust = min(1.0, max(0.0, thrust + dthrust))
+        elif self._control_type == 'continuous':
+            self.torque = action[0]
+            self.thrust = action[1]
+        elif self._control_type == 'assisted':
+            err = self.target_rotation - self._rocket.rotation
+            d_err = (err - self._old_rot_err_obs) / dt
+            if 0 < action <= 10:
+                self.thrust = [1.0, 0.95, 0.90, 0.85, 0.80, 0.70, 0.60, 0.40, 0.20, 0.0][action-1]
+            elif 10 < action <= 21:
+                action -= 10
+                t = 0.1*action
+                self.target_rotation = t*(-np.pi/6) + (1-t)*(np.pi/6)
+                err = self.target_rotation - self._rocket.rotation
+                d_err = 0.0
 
-            self._rocket.torque = min(1.0, max(-1.0, torque))
-            self._rocket.thrust = min(1.0, max(0.0, thrust))
+            kp = 0.5
+            kd = 2.0
+            self.torque = 2*sigmoid(kp * err + kd * d_err) - 1.0
         else:
             raise ValueError()
 
-        self._old_err_obs = self._rocket.position_obs - self._target
+        self._old_err_obs = self._target - self._rocket.position_obs
         self._cum_err_obs += dt * (self._target - self._rocket.position_obs)
+        self._old_rot_err_obs = self.target_rotation - self._rocket.rotation_obs
 
     def _get_obs(self, dt):
         position = self._rocket.position_obs
         velocity = self._rocket.velocity_obs
         heading = self._rocket.heading_obs
-        height = position[1] - DQNController.GROUND_Y
+        height = position[1]
         target = self._target
         err_k = (target - position)
         err_d = (err_k - self._old_err_obs) / dt
         err_i = self._cum_err_obs + err_k * dt
+        # print(*err_k, *err_d, *err_i)
         return np.array([height, *velocity, *heading, *target,
                         *err_k, *err_d, *err_i,
                          self._rocket.rotation_obs,
-                         self._rocket.angular_velocity])
+                         self._rocket.angular_velocity,
+                         self.target_rotation,
+                         self._rocket.thrust,
+                         self._rocket.torque])
